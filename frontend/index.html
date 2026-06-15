@@ -400,7 +400,14 @@
   <footer>Ollama · ChromaDB RAG · Tavily Enrichment · FastAPI — local LLM inference, no data leaves your machine</footer>
 
   <script>
-    const API = 'http://localhost:8000';
+    // API base: same-origin when served by the backend (Render), localhost when
+    // opening this file directly (file://), or override with ?api=https://...
+    const API = (() => {
+      const override = new URLSearchParams(location.search).get('api');
+      if (override) return override.replace(/\/+$/, '');
+      if (location.protocol === 'file:') return 'http://localhost:8000';
+      return '';  // same origin
+    })();
 
     const STAGE_LABELS = {
       tavily: 'Web enrichment (Tavily)',

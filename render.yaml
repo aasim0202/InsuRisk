@@ -1,0 +1,37 @@
+# Render blueprint — one web service hosting both the API and the frontend.
+# Deploy: Render dashboard → New → Blueprint → connect this repo → set the
+# secret env vars (marked sync:false) in the dashboard → Apply.
+services:
+  - type: web
+    name: insurisk
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # LLM — no local Ollama on the server, so go straight to Ollama Cloud
+      - key: LLM_MODE
+        value: cloud
+      - key: OLLAMA_CLOUD_URL
+        value: https://ollama.com
+      - key: OLLAMA_CLOUD_MODEL
+        value: gpt-oss:120b
+      - key: OLLAMA_API_KEY          # set in dashboard (secret)
+        sync: false
+
+      # Web enrichment
+      - key: TAVILY_API_KEY          # set in dashboard (secret)
+        sync: false
+
+      # Output storage
+      - key: AWS_S3_BUCKET
+        value: insurisk-outputs
+      - key: AWS_ACCESS_KEY_ID       # set in dashboard (secret)
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY   # set in dashboard (secret)
+        sync: false

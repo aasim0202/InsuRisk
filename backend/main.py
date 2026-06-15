@@ -5,6 +5,7 @@ import json
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -158,3 +159,10 @@ def history_item(filename: str):
         raise HTTPException(status_code=404, detail="Classification not found.")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ── Serve the frontend from the same origin (single-service deployment) ──
+# Declared AFTER the API routes so /classify, /health, /docs, etc. take precedence.
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

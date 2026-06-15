@@ -278,6 +278,28 @@ InsuRisk/
 
 ---
 
+## Deployment (Render — one service)
+
+The backend serves the frontend from the same origin, so the whole app deploys as a single
+Render web service. A blueprint is included at [`render.yaml`](render.yaml).
+
+1. Push the repo to GitHub (done).
+2. Render dashboard → **New → Blueprint** → connect the `InsuRisk` repo. Render reads
+   `render.yaml` and creates the service.
+3. Set the secret env vars (the ones marked `sync: false`) in the dashboard:
+   `OLLAMA_API_KEY`, `TAVILY_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
+4. **Apply** → first build installs deps and boots `uvicorn`. Visit the service URL —
+   the frontend loads and calls the API on the same origin automatically.
+
+`LLM_MODE=cloud` is set for deployment (no local Ollama on the server), so inference uses
+Ollama Cloud. `GET /health` confirms the active provider.
+
+> **Free-tier notes:** the service sleeps after ~15 min idle and cold-starts in ~30–60s; the
+> embedding model downloads on first request; local `data/outputs/` is ephemeral (S3 keeps a
+> durable copy). All fine for a demo.
+
+---
+
 ## Continuous Integration
 
 `.github/workflows/ci.yml` runs on every push and PR to `main`: it byte-compiles the
