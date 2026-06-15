@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    name: Compile & validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Byte-compile backend (syntax check)
+        run: |
+          python -m py_compile \
+            backend/naics.py \
+            backend/pipeline.py \
+            backend/main.py \
+            backend/evaluate.py
+          echo "Backend compiled OK"
+
+      - name: Validate JSON data files
+        run: |
+          python -c "import json; json.load(open('data/eval/eval_set.json')); print('eval_set.json OK')"
+
+      - name: Check required project files exist
+        run: |
+          test -f frontend/index.html && echo "frontend OK"
+          test -f backend/requirements.txt && echo "requirements OK"
+          test -f backend/.env.example && echo ".env.example OK"
+
+      - name: Guard against committed secrets
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then
+            echo "::error::A .env file is tracked in git. Remove it and rely on .env.example."
+            exit 1
+          fi
+          echo "No tracked .env — OK"

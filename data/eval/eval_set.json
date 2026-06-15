@@ -1,0 +1,74 @@
+[
+  {
+    "business_name": "Joe's Auto Repair",
+    "address": "4521 W Belmont Ave, Chicago, IL 60641",
+    "expected_risk": "MEDIUM",
+    "expected_industry_keywords": ["auto", "automotive", "repair", "mechanic"]
+  },
+  {
+    "business_name": "Summit Roofing Contractors",
+    "address": "1200 Industrial Blvd, Denver, CO 80216",
+    "expected_risk": "HIGH",
+    "expected_industry_keywords": ["roofing", "roof", "contractor", "construction"]
+  },
+  {
+    "business_name": "Harbor Light Family Dentistry",
+    "address": "88 Marina Way, San Diego, CA 92101",
+    "expected_risk": "LOW",
+    "expected_industry_keywords": ["dental", "dentist", "dentistry"]
+  },
+  {
+    "business_name": "Apex Long Haul Trucking",
+    "address": "7700 Freight Rd, Dallas, TX 75201",
+    "expected_risk": "HIGH",
+    "expected_industry_keywords": ["trucking", "freight", "transport", "logistics"]
+  },
+  {
+    "business_name": "Bright Beginnings Day Care",
+    "address": "312 Maple St, Columbus, OH 43215",
+    "expected_risk": "MEDIUM",
+    "expected_industry_keywords": ["day care", "daycare", "child", "childcare"]
+  },
+  {
+    "business_name": "The Anchor Tavern",
+    "address": "55 Dockside Ln, Boston, MA 02110",
+    "expected_risk": "HIGH",
+    "expected_industry_keywords": ["bar", "tavern", "pub", "drinking"]
+  },
+  {
+    "business_name": "Evergreen Tax & Accounting",
+    "address": "900 Commerce St, Seattle, WA 98101",
+    "expected_risk": "LOW",
+    "expected_industry_keywords": ["accounting", "tax", "cpa", "accountant"]
+  },
+  {
+    "business_name": "Precision Machine Works",
+    "address": "240 Foundry Dr, Cleveland, OH 44113",
+    "expected_risk": "HIGH",
+    "expected_industry_keywords": ["machine", "machining", "fabrication", "metal"]
+  },
+  {
+    "business_name": "GreenScape Landscaping Services",
+    "address": "615 Garden Ave, Austin, TX 78701",
+    "expected_risk": "MEDIUM",
+    "expected_industry_keywords": ["landscaping", "lawn", "garden", "groundskeeping"]
+  },
+  {
+    "business_name": "Lakeside Family Medical Clinic",
+    "address": "44 Lakeshore Dr, Minneapolis, MN 55401",
+    "expected_risk": "MEDIUM",
+    "expected_industry_keywords": ["medical", "physician", "clinic", "doctor", "health"]
+  },
+  {
+    "business_name": "Urban Threads Clothing Boutique",
+    "address": "130 Fashion St, Portland, OR 97204",
+    "expected_risk": "LOW",
+    "expected_industry_keywords": ["clothing", "apparel", "boutique", "retail", "fashion"]
+  },
+  {
+    "business_name": "Riverside Gas & Convenience",
+    "address": "2100 River Rd, Memphis, TN 38103",
+    "expected_risk": "HIGH",
+    "expected_industry_keywords": ["gas", "fuel", "convenience", "station"]
+  }
+]

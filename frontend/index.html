@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InsuRisk — Business Risk Classifier</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #1c222b;
+      --border: #2a313c;
+      --border-soft: #21272f;
+      --text: #e6edf3;
+      --text-soft: #aab2bd;
+      --muted: #6e7681;
+      --accent: #3b82f6;
+      --accent-hover: #2f6fd6;
+      --accent-soft: rgba(59, 130, 246, 0.12);
+      --low: #3fb950;
+      --medium: #d29922;
+      --high: #e5534b;
+      --mono: 'Fira Code', 'Courier New', monospace;
+      --sans: 'Fira Sans', -apple-system, sans-serif;
+      --radius: 12px;
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 20px 80px;
+    }
+
+    /* Header */
+    header { width: 100%; max-width: 680px; margin-bottom: 22px; }
+    .logo {
+      display: inline-flex; align-items: center; gap: 11px;
+      font-family: var(--mono); font-size: 1.5rem; font-weight: 600;
+      letter-spacing: -0.5px; color: var(--text);
+    }
+    .logo .mark {
+      width: 30px; height: 30px; display: grid; place-items: center;
+      border-radius: 8px; background: var(--accent-soft);
+      border: 1px solid rgba(59,130,246,0.3);
+    }
+    .logo .mark svg { width: 17px; height: 17px; stroke: var(--accent); }
+    .tagline { color: var(--muted); font-family: var(--mono); font-size: 0.72rem; margin-top: 10px; letter-spacing: 1px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; width: 100%; max-width: 680px; margin-bottom: 16px; }
+    .tab {
+      font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+      background: none; border: none; border-bottom: 2px solid transparent;
+      padding: 9px 14px; cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: var(--text-soft); }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+    /* Card */
+    .card {
+      width: 100%; max-width: 680px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 30px;
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Form */
+    .form-group { margin-bottom: 18px; }
+    label {
+      display: block; font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+    }
+    .input-wrap { position: relative; }
+    .input-wrap svg {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      width: 16px; height: 16px; stroke: var(--muted); pointer-events: none;
+    }
+    input[type=text] {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-family: var(--mono); font-size: 0.88rem;
+      padding: 12px 14px 12px 42px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input::placeholder { color: var(--muted); }
+    input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    button.primary {
+      width: 100%; margin-top: 6px; background: var(--accent); color: #fff; border: none;
+      border-radius: 8px; font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+      padding: 13px; cursor: pointer; transition: background 0.15s;
+    }
+    button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+    button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    button.primary:focus-visible, input:focus-visible, .collapse-toggle:focus-visible, .tab:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+
+    /* Live progress */
+    #progress { display: none; margin-top: 22px; }
+    .stage-row {
+      display: flex; align-items: center; gap: 10px; padding: 7px 0;
+      font-family: var(--mono); font-size: 0.8rem; color: var(--muted);
+    }
+    .stage-row .ico { width: 16px; height: 16px; flex-shrink: 0; display: grid; place-items: center; }
+    .stage-row .ico svg { width: 14px; height: 14px; }
+    .stage-row.active { color: var(--text); }
+    .stage-row.done { color: var(--text-soft); }
+    .stage-row .ms { margin-left: auto; color: var(--muted); font-size: 0.72rem; }
+    .mini-spin {
+      width: 13px; height: 13px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .check { stroke: var(--low); }
+    .dot-pending { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+
+    #live-reasoning {
+      display: none; margin-top: 14px; background: var(--bg); border: 1px solid var(--border-soft);
+      border-radius: 8px; padding: 14px; font-family: var(--mono); font-size: 0.76rem;
+      color: var(--text-soft); line-height: 1.7; white-space: pre-wrap;
+      max-height: 220px; overflow-y: auto;
+    }
+
+    /* Error */
+    #error-box {
+      display: none; align-items: center; gap: 10px; background: rgba(229,83,75,0.08);
+      border: 1px solid rgba(229,83,75,0.3); border-radius: 8px; padding: 13px 15px;
+      margin-top: 18px; color: #f0837c; font-size: 0.84rem;
+    }
+    #error-box svg { width: 17px; height: 17px; stroke: #f0837c; flex-shrink: 0; }
+
+    /* Result */
+    #result { display: none; margin-top: 24px; }
+    #result.show { animation: fade 0.3s var(--ease) both; }
+    @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .divider { border: none; height: 1px; background: var(--border-soft); margin: 22px 0; }
+
+    .risk-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+    .risk-badge {
+      font-family: var(--mono); font-size: 0.82rem; font-weight: 600; padding: 6px 16px;
+      border-radius: 6px; letter-spacing: 1.5px; text-transform: uppercase;
+    }
+    .risk-badge.LOW    { color: var(--low);    background: rgba(63,185,80,0.10);  border: 1px solid rgba(63,185,80,0.3); }
+    .risk-badge.MEDIUM { color: var(--medium); background: rgba(210,153,34,0.10); border: 1px solid rgba(210,153,34,0.3); }
+    .risk-badge.HIGH   { color: var(--high);   background: rgba(229,83,75,0.10);  border: 1px solid rgba(229,83,75,0.3); }
+    .risk-badge.UNKNOWN{ color: var(--muted);  background: var(--surface-2);      border: 1px solid var(--border); }
+    .business-title { font-family: var(--mono); font-size: 0.98rem; font-weight: 500; }
+
+    .section-label { font-family: var(--mono); font-size: 0.66rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 9px; }
+
+    .confidence-row { display: flex; align-items: center; gap: 13px; margin-bottom: 24px; }
+    .progress-track { flex: 1; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 4px; height: 8px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 4px; transition: width 0.6s var(--ease); }
+    .confidence-pct { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; min-width: 42px; text-align: right; }
+
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .meta-item { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; padding: 14px; }
+    .meta-item .value { font-family: var(--mono); font-size: 0.92rem; font-weight: 500; margin-top: 6px; }
+    .naics-line { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+    .naics-line .value { margin-top: 0; }
+    .verify-badge {
+      display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono);
+      font-size: 0.66rem; padding: 3px 8px; border-radius: 5px; letter-spacing: 0.3px;
+    }
+    .verify-badge svg { width: 12px; height: 12px; }
+    .verify-badge.ok   { color: var(--low);    background: rgba(63,185,80,0.10);  border: 1px solid rgba(63,185,80,0.3); }
+    .verify-badge.warn { color: var(--medium); background: rgba(210,153,34,0.10); border: 1px solid rgba(210,153,34,0.3); }
+    .naics-desc { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin-top: 7px; line-height: 1.5; }
+
+    .flags-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .flag-tag {
+      background: rgba(229,83,75,0.07); border: 1px solid rgba(229,83,75,0.22); color: #f0837c;
+      border-radius: 6px; padding: 5px 11px; font-family: var(--mono); font-size: 0.75rem;
+    }
+    .flag-none { color: var(--muted); font-size: 0.84rem; font-family: var(--mono); }
+
+    .summary-text { color: var(--text-soft); font-size: 0.9rem; line-height: 1.7; margin-bottom: 22px; }
+
+    /* Collapsibles (sources + CoT) */
+    .collapse { margin-bottom: 12px; }
+    .collapse-toggle {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text-soft);
+      font-family: var(--mono); font-size: 0.78rem; padding: 12px 15px; cursor: pointer; width: 100%;
+      text-align: left; display: flex; justify-content: space-between; align-items: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .collapse-toggle:hover { border-color: var(--accent); color: var(--text); }
+    .collapse-toggle .left { display: flex; align-items: center; gap: 8px; }
+    .collapse-toggle .count { color: var(--muted); font-size: 0.72rem; }
+    .collapse-toggle .chev { width: 17px; height: 17px; stroke: currentColor; transition: transform 0.25s var(--ease); }
+    .collapse-toggle.open { border-radius: 8px 8px 0 0; }
+    .collapse-toggle.open .chev { transform: rotate(180deg); }
+    .collapse-body {
+      max-height: 0; overflow: hidden; background: var(--bg); border: 1px solid var(--border);
+      border-top: none; border-radius: 0 0 8px 8px;
+      transition: max-height 0.3s var(--ease), padding 0.3s var(--ease); padding: 0 15px;
+    }
+    .collapse-body.open { max-height: 640px; padding: 15px; overflow-y: auto; }
+    .cot-text { font-family: var(--mono); font-size: 0.82rem; color: var(--text-soft); line-height: 1.8; white-space: pre-wrap; }
+
+    /* Source items */
+    .source { padding: 11px 0; border-bottom: 1px solid var(--border-soft); }
+    .source:last-child { border-bottom: none; }
+    .source a { color: var(--accent); font-family: var(--mono); font-size: 0.8rem; text-decoration: none; word-break: break-word; }
+    .source a:hover { text-decoration: underline; }
+    .source .url { color: var(--muted); font-family: var(--mono); font-size: 0.68rem; margin-top: 2px; word-break: break-all; }
+    .source .snip { color: var(--text-soft); font-size: 0.8rem; line-height: 1.55; margin-top: 6px; }
+
+    /* Metrics footer */
+    .metrics { margin-top: 18px; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); line-height: 1.6; }
+    .metrics b { color: var(--text-soft); font-weight: 500; }
+
+    /* Batch */
+    .hint { color: var(--muted); font-size: 0.82rem; line-height: 1.6; margin-bottom: 16px; }
+    .file-drop {
+      border: 1px dashed var(--border); border-radius: 8px; padding: 22px; text-align: center;
+      font-family: var(--mono); font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: border-color 0.15s;
+      margin-bottom: 14px;
+    }
+    .file-drop:hover { border-color: var(--accent); }
+    .file-drop input { display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 0.8rem; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); }
+    th { font-family: var(--mono); font-size: 0.66rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    td { color: var(--text-soft); }
+    .mini-badge { font-family: var(--mono); font-size: 0.68rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.5px; }
+    .mini-badge.LOW { color: var(--low); background: rgba(63,185,80,0.1); }
+    .mini-badge.MEDIUM { color: var(--medium); background: rgba(210,153,34,0.1); }
+    .mini-badge.HIGH { color: var(--high); background: rgba(229,83,75,0.1); }
+    .mini-badge.UNKNOWN { color: var(--muted); background: var(--surface-2); }
+    .row-actions { margin-top: 16px; display: flex; gap: 10px; }
+    button.secondary {
+      background: var(--bg); color: var(--text-soft); border: 1px solid var(--border); border-radius: 8px;
+      font-family: var(--mono); font-size: 0.76rem; padding: 9px 14px; cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    }
+    button.secondary:hover { border-color: var(--accent); color: var(--text); }
+
+    /* History */
+    .hist-item {
+      display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--bg);
+      border: 1px solid var(--border-soft); border-radius: 8px; margin-bottom: 8px; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .hist-item:hover { border-color: var(--accent); }
+    .hist-item .h-name { font-family: var(--mono); font-size: 0.84rem; color: var(--text); }
+    .hist-item .h-meta { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); margin-top: 3px; }
+    .hist-item .h-right { margin-left: auto; text-align: right; }
+    .hist-item .h-ts { font-family: var(--mono); font-size: 0.66rem; color: var(--muted); margin-top: 4px; }
+    .empty { color: var(--muted); font-family: var(--mono); font-size: 0.82rem; text-align: center; padding: 24px; }
+
+    footer {
+      width: 100%; max-width: 680px; margin-top: 22px; color: var(--muted);
+      font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.4px; line-height: 1.8;
+    }
+
+    @media (max-width: 540px) {
+      body { padding: 32px 14px 64px; }
+      .card { padding: 22px 18px; }
+      .meta-grid { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::after, *::before { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">
+      <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+      <span>InsuRisk</span>
+    </div>
+    <div class="tagline">Commercial Underwriting Intelligence</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="classify" onclick="switchTab('classify')">Classify</button>
+    <button class="tab" data-tab="batch" onclick="switchTab('batch')">Batch</button>
+    <button class="tab" data-tab="history" onclick="switchTab('history')">History</button>
+  </nav>
+
+  <main class="card">
+
+    <!-- ── CLASSIFY ── -->
+    <section class="panel active" id="panel-classify">
+      <div class="form-group">
+        <label for="biz-name">Business Name</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg>
+          <input type="text" id="biz-name" placeholder="Joe's Auto Repair" autocomplete="off" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="biz-addr">Business Address</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <input type="text" id="biz-addr" placeholder="4521 Oak St, Chicago, IL 60601" autocomplete="off" />
+        </div>
+      </div>
+      <button class="primary" id="classify-btn" onclick="classify()">Classify Risk</button>
+
+      <div id="progress">
+        <div id="stage-list"></div>
+        <div id="live-reasoning"></div>
+      </div>
+
+      <div id="error-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <span id="error-text"></span>
+      </div>
+
+      <div id="result">
+        <hr class="divider" />
+        <div class="risk-header">
+          <span class="risk-badge UNKNOWN" id="risk-badge">—</span>
+          <span class="business-title" id="result-title"></span>
+        </div>
+
+        <div class="section-label">Confidence Score</div>
+        <div class="confidence-row">
+          <div class="progress-track"><div class="progress-fill" id="conf-bar"></div></div>
+          <div class="confidence-pct" id="conf-pct">—</div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-item">
+            <div class="section-label">Industry</div>
+            <div class="value" id="industry-val">—</div>
+          </div>
+          <div class="meta-item">
+            <div class="section-label">NAICS Code</div>
+            <div class="naics-line">
+              <span class="value" id="naics-val">—</span>
+              <span id="naics-verify"></span>
+            </div>
+            <div class="naics-desc" id="naics-desc"></div>
+          </div>
+        </div>
+
+        <div class="section-label">Risk Flags</div>
+        <div class="flags-wrap" id="flags-wrap"></div>
+
+        <div class="section-label">Summary</div>
+        <div class="summary-text" id="summary-val"></div>
+
+        <!-- Evidence / sources -->
+        <div class="collapse">
+          <button class="collapse-toggle" id="src-toggle" onclick="toggleCollapse('src')" aria-expanded="false">
+            <span class="left">Evidence &amp; Sources <span class="count" id="src-count"></span></span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="collapse-body" id="src-body"></div>
+        </div>
+
+        <!-- Chain of thought -->
+        <div class="collapse">
+          <button class="collapse-toggle" id="cot-toggle" onclick="toggleCollapse('cot')" aria-expanded="false">
+            <span class="left">Chain of Thought Reasoning</span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="collapse-body" id="cot-body"><div class="cot-text" id="cot-text"></div></div>
+        </div>
+
+        <div class="metrics" id="metrics"></div>
+      </div>
+    </section>
+
+    <!-- ── BATCH ── -->
+    <section class="panel" id="panel-batch">
+      <p class="hint">Upload a CSV with <b>business_name</b> and <b>address</b> columns. Each row is classified through the full pipeline.</p>
+      <label class="file-drop" for="csv-input">
+        <span id="csv-label">Click to choose a CSV file</span>
+        <input type="file" id="csv-input" accept=".csv" onchange="onCsvPick()" />
+      </label>
+      <button class="primary" id="batch-btn" onclick="runBatch()" disabled>Run Batch Classification</button>
+      <div id="batch-status" class="hint" style="margin-top:14px; display:none;"></div>
+      <div id="batch-results"></div>
+    </section>
+
+    <!-- ── HISTORY ── -->
+    <section class="panel" id="panel-history">
+      <div class="row-actions" style="margin-top:0; margin-bottom:14px;">
+        <button class="secondary" onclick="loadHistory()">Refresh</button>
+      </div>
+      <div id="history-list"><div class="empty">Loading…</div></div>
+      <div id="history-detail"></div>
+    </section>
+
+  </main>
+
+  <footer>Ollama · ChromaDB RAG · Tavily Enrichment · FastAPI — local LLM inference, no data leaves your machine</footer>
+
+  <script>
+    const API = 'http://localhost:8000';
+
+    const STAGE_LABELS = {
+      tavily: 'Web enrichment (Tavily)',
+      rag: 'Embedding & retrieval (RAG)',
+      llm: 'LLM reasoning',
+      post: 'Validation & NAICS check',
+    };
+    const STAGE_ORDER = ['tavily', 'rag', 'llm', 'post'];
+
+    /* ── Tabs ── */
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+      if (name === 'history') loadHistory();
+    }
+
+    /* ── Collapsibles ── */
+    function toggleCollapse(key) {
+      const btn = document.getElementById(key + '-toggle');
+      const body = document.getElementById(key + '-body');
+      const open = !btn.classList.contains('open');
+      btn.classList.toggle('open', open);
+      body.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', open);
+    }
+    function closeCollapse(key) {
+      document.getElementById(key + '-toggle').classList.remove('open');
+      document.getElementById(key + '-body').classList.remove('open');
+    }
+
+    /* ── Progress rendering ── */
+    function initStages() {
+      const list = document.getElementById('stage-list');
+      list.innerHTML = '';
+      STAGE_ORDER.forEach(s => {
+        const row = document.createElement('div');
+        row.className = 'stage-row';
+        row.id = 'stage-' + s;
+        row.innerHTML = `<span class="ico"><span class="dot-pending"></span></span>
+          <span class="lbl">${STAGE_LABELS[s]}</span><span class="ms"></span>`;
+        list.appendChild(row);
+      });
+    }
+    function setStage(stage, status, ms, detail) {
+      const row = document.getElementById('stage-' + stage);
+      if (!row) return;
+      const ico = row.querySelector('.ico');
+      const msEl = row.querySelector('.ms');
+      const lbl = row.querySelector('.lbl');
+      if (status === 'start') {
+        row.classList.add('active');
+        ico.innerHTML = '<span class="mini-spin"></span>';
+      } else if (status === 'done') {
+        row.classList.remove('active'); row.classList.add('done');
+        ico.innerHTML = '<svg class="check" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+        if (ms != null) msEl.textContent = (ms / 1000).toFixed(1) + 's';
+        if (detail) lbl.textContent = STAGE_LABELS[stage] + ' · ' + detail;
+      }
+    }
+
+    /* ── Classify (streaming) ── */
+    async function classify() {
+      const name = document.getElementById('biz-name').value.trim();
+      const addr = document.getElementById('biz-addr').value.trim();
+      document.getElementById('error-box').style.display = 'none';
+      if (!name || !addr) { showError('Please fill in both Business Name and Address.'); return; }
+
+      setBusy(true);
+      initStages();
+      document.getElementById('progress').style.display = 'block';
+      const live = document.getElementById('live-reasoning');
+      live.style.display = 'none'; live.textContent = '';
+
+      try {
+        const res = await fetch(`${API}/classify/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_name: name, address: addr }),
+        });
+        if (!res.ok || !res.body) {
+          let detail = `Server error ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          throw new Error(detail);
+        }
+
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        let pendingSources = [];
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let idx;
+          while ((idx = buf.indexOf('\n\n')) >= 0) {
+            const chunk = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 2);
+            if (!chunk.startsWith('data:')) continue;
+            const ev = JSON.parse(chunk.slice(5).trim());
+
+            if (ev.type === 'stage') {
+              setStage(ev.stage, ev.status, ev.ms, ev.detail);
+            } else if (ev.type === 'sources') {
+              pendingSources = ev.sources || [];
+            } else if (ev.type === 'token') {
+              live.style.display = 'block';
+              live.textContent += ev.text;
+              live.scrollTop = live.scrollHeight;
+            } else if (ev.type === 'result') {
+              renderResult(ev.data, name);
+            } else if (ev.type === 'error') {
+              throw new Error(ev.detail);
+            }
+          }
+        }
+      } catch (e) {
+        showError(e.message || 'Unexpected error. Is the backend running on :8000?');
+      } finally {
+        setBusy(false);
+        setTimeout(() => { document.getElementById('progress').style.display = 'none'; }, 600);
+      }
+    }
+
+    function renderResult(d, name) {
+      const level = d.risk_level || 'UNKNOWN';
+      const badge = document.getElementById('risk-badge');
+      badge.textContent = level; badge.className = 'risk-badge ' + level;
+      document.getElementById('result-title').textContent = name;
+
+      const pct = Math.round((d.confidence_score || 0) * 100);
+      document.getElementById('conf-pct').textContent = pct + '%';
+      document.getElementById('industry-val').textContent = d.industry || '—';
+      document.getElementById('naics-val').textContent = d.naics_code || '—';
+
+      renderNaicsValidation(d.naics_validation);
+      renderFlags(d.risk_flags || []);
+      document.getElementById('summary-val').textContent = d.summary || '—';
+      renderSources(d.sources || []);
+      document.getElementById('cot-text').textContent = d.chain_of_thought || 'No reasoning available.';
+      renderMetrics(d.metrics);
+
+      closeCollapse('src'); closeCollapse('cot');
+
+      const result = document.getElementById('result');
+      result.style.display = 'block';
+      result.classList.remove('show'); void result.offsetWidth; result.classList.add('show');
+
+      const bar = document.getElementById('conf-bar');
+      bar.style.width = '0%';
+      requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.width = pct + '%'; }));
+    }
+
+    function renderNaicsValidation(v) {
+      const el = document.getElementById('naics-verify');
+      const desc = document.getElementById('naics-desc');
+      el.innerHTML = ''; desc.textContent = '';
+      if (!v) return;
+      const checkIco = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+      const warnIco = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
+      if (v.status === 'verified') {
+        el.innerHTML = `<span class="verify-badge ok">${checkIco} Verified</span>`;
+      } else if (v.status === 'mismatch') {
+        el.innerHTML = `<span class="verify-badge warn">${warnIco} Industry mismatch</span>`;
+      } else {
+        el.innerHTML = `<span class="verify-badge warn">${warnIco} Unverified code</span>`;
+      }
+      let line = '';
+      if (v.official_description) line += 'Official class: ' + v.official_description + '. ';
+      if (v.risk_reconciliation && v.risk_reconciliation.note) line += v.risk_reconciliation.note;
+      desc.textContent = line;
+    }
+
+    function renderFlags(flags) {
+      const wrap = document.getElementById('flags-wrap');
+      wrap.innerHTML = '';
+      if (!flags.length) { wrap.innerHTML = '<span class="flag-none">No specific flags identified</span>'; return; }
+      flags.forEach(f => {
+        const tag = document.createElement('span');
+        tag.className = 'flag-tag'; tag.textContent = f;
+        wrap.appendChild(tag);
+      });
+    }
+
+    function renderSources(sources) {
+      const body = document.getElementById('src-body');
+      document.getElementById('src-count').textContent = sources.length ? `(${sources.length})` : '';
+      body.innerHTML = '';
+      if (!sources.length) { body.innerHTML = '<span class="flag-none">No web sources retrieved.</span>'; return; }
+      sources.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'source';
+        const title = (s.title || 'Source').replace(/</g, '&lt;');
+        const url = (s.url || '').replace(/"/g, '&quot;');
+        const snip = (s.snippet || '').replace(/</g, '&lt;');
+        div.innerHTML = `<a href="${url}" target="_blank" rel="noopener">${title}</a>
+          <div class="url">${url}</div>
+          <div class="snip">${snip}</div>`;
+        body.appendChild(div);
+      });
+    }
+
+    function renderMetrics(m) {
+      const el = document.getElementById('metrics');
+      if (!m) { el.textContent = ''; return; }
+      const s = ms => (ms / 1000).toFixed(1) + 's';
+      el.innerHTML = `<b>Pipeline:</b> Tavily ${s(m.tavily_ms)} · RAG ${s(m.rag_ms)} · LLM ${s(m.llm_ms)} · total ${s(m.total_ms)}<br>
+        <b>Model:</b> ${m.model} · <b>Indexed:</b> ${m.chunks_indexed} chunks · <b>Context:</b> top-${m.context_chunks}`;
+    }
+
+    /* ── Batch ── */
+    let csvFile = null;
+    function onCsvPick() {
+      const input = document.getElementById('csv-input');
+      csvFile = input.files[0] || null;
+      document.getElementById('csv-label').textContent = csvFile ? csvFile.name : 'Click to choose a CSV file';
+      document.getElementById('batch-btn').disabled = !csvFile;
+    }
+
+    async function runBatch() {
+      if (!csvFile) return;
+      const btn = document.getElementById('batch-btn');
+      const status = document.getElementById('batch-status');
+      const out = document.getElementById('batch-results');
+      btn.disabled = true; out.innerHTML = '';
+      status.style.display = 'block';
+      status.textContent = 'Classifying… this runs one full pipeline per row and may take a while.';
+
+      try {
+        const fd = new FormData();
+        fd.append('file', csvFile);
+        const res = await fetch(`${API}/classify/batch`, { method: 'POST', body: fd });
+        if (!res.ok) {
+          let detail = `Server error ${res.status}`;
+          try { detail = (await res.json()).detail || detail; } catch (_) {}
+          throw new Error(detail);
+        }
+        const data = await res.json();
+        status.textContent = `Done — ${data.count} businesses classified.`;
+        renderBatchTable(data.results);
+      } catch (e) {
+        status.textContent = '';
+        out.innerHTML = `<div class="empty" style="color:#f0837c">⚠ ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function renderBatchTable(results) {
+      const out = document.getElementById('batch-results');
+      let rows = results.map(r => {
+        const c = r.classification || {};
+        if (r.error) {
+          return `<tr><td>${esc(r.business_name)}</td><td colspan="3" style="color:#f0837c">${esc(r.error)}</td></tr>`;
+        }
+        const lvl = c.risk_level || 'UNKNOWN';
+        const conf = Math.round((c.confidence_score || 0) * 100);
+        return `<tr>
+          <td>${esc(r.business_name)}</td>
+          <td>${esc(c.industry || '—')}</td>
+          <td><span class="mini-badge ${lvl}">${lvl}</span></td>
+          <td>${conf}%</td></tr>`;
+      }).join('');
+
+      out.innerHTML = `<table>
+        <thead><tr><th>Business</th><th>Industry</th><th>Risk</th><th>Conf.</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        <div class="row-actions"><button class="secondary" onclick='downloadBatch()'>Download JSON</button></div>`;
+      window._batchData = results;
+    }
+
+    function downloadBatch() {
+      const blob = new Blob([JSON.stringify(window._batchData || [], null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'insurisk_batch_results.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    /* ── History ── */
+    async function loadHistory() {
+      const list = document.getElementById('history-list');
+      const detail = document.getElementById('history-detail');
+      detail.innerHTML = '';
+      list.innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        const res = await fetch(`${API}/history`);
+        if (!res.ok) throw new Error('Could not load history.');
+        const data = await res.json();
+        if (!data.items.length) { list.innerHTML = '<div class="empty">No classifications yet.</div>'; return; }
+        list.innerHTML = data.items.map(it => {
+          const lvl = it.risk_level || 'UNKNOWN';
+          const conf = Math.round((it.confidence_score || 0) * 100);
+          const ts = formatTs(it.timestamp);
+          return `<div class="hist-item" onclick="openHistory('${esc(it.filename)}')">
+            <div>
+              <div class="h-name">${esc(it.business_name)}</div>
+              <div class="h-meta">${esc(it.industry)} · ${esc(it.address)}</div>
+            </div>
+            <div class="h-right">
+              <span class="mini-badge ${lvl}">${lvl}</span>
+              <div class="h-ts">${ts} · ${conf}%</div>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = `<div class="empty" style="color:#f0837c">⚠ ${e.message}</div>`;
+      }
+    }
+
+    async function openHistory(filename) {
+      const detail = document.getElementById('history-detail');
+      detail.innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        const res = await fetch(`${API}/history/${encodeURIComponent(filename)}`);
+        if (!res.ok) throw new Error('Could not load classification.');
+        const data = await res.json();
+        switchTab('classify');
+        renderResult(data.classification, data.business_name);
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      } catch (e) {
+        detail.innerHTML = `<div class="empty" style="color:#f0837c">⚠ ${e.message}</div>`;
+      }
+    }
+
+    /* ── Helpers ── */
+    function setBusy(on) {
+      document.getElementById('classify-btn').disabled = on;
+      if (on) document.getElementById('result').style.display = 'none';
+    }
+    function showError(msg) {
+      document.getElementById('error-text').textContent = msg;
+      document.getElementById('error-box').style.display = 'flex';
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c])); }
+    function formatTs(ts) {
+      const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/.exec(ts || '');
+      return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : (ts || '');
+    }
+
+    ['biz-name', 'biz-addr'].forEach(id => {
+      document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') classify(); });
+    });
+  </script>
+</body>
+</html>

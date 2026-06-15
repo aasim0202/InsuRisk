@@ -1,0 +1,319 @@
+import os
+import json
+import re
+import time
+import requests
+import chromadb
+import boto3
+from datetime import datetime
+from tavily import TavilyClient
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+from dotenv import load_dotenv
+
+from naics import validate_naics, reconcile_risk
+
+load_dotenv()
+
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "outputs")
+
+# Reuse one embedding function instance — loading the model is expensive.
+_EMBED_FN = DefaultEmbeddingFunction()
+
+
+def _cfg(key, default=None):
+    """Read config at call time so tools like evaluate.py can override via env."""
+    return os.getenv(key, default)
+
+
+def sanitize_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]", "_", name.lower()).strip("_")
+    return (slug or "business")[:40]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Pipeline stages (shared by the blocking and streaming entry points)
+# ──────────────────────────────────────────────────────────────────────────
+
+def _tavily_enrich(business_name: str, address: str):
+    """Run 3 targeted searches. Returns (chunks, sources)."""
+    tavily = TavilyClient(api_key=TAVILY_API_KEY)
+    queries = [
+        f"{business_name} {address} business risk insurance",
+        f"{business_name} OSHA violations safety record incidents",
+        f"{business_name} industry license type NAICS classification",
+    ]
+
+    chunks, sources, seen_urls = [], [], set()
+    for query in queries:
+        try:
+            results = tavily.search(query=query, max_results=3)
+            for r in results.get("results", []):
+                content = (r.get("content") or "").strip()
+                url = r.get("url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    sources.append({
+                        "title": r.get("title", "Untitled source"),
+                        "url": url,
+                        "snippet": content[:280],
+                        "query": query,
+                    })
+                for i in range(0, len(content), 500):
+                    chunk = content[i:i + 500].strip()
+                    if chunk:
+                        chunks.append(chunk)
+        except Exception as e:
+            print(f"[Tavily] Error on query '{query}': {e}")
+
+    if not chunks:
+        chunks = [f"Business: {business_name} located at {address}. No additional public data retrieved."]
+    return chunks, sources
+
+
+def _embed_and_retrieve(business_name: str, address: str, chunks):
+    """Embed chunks in an ephemeral ChromaDB collection and return top-5 context."""
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(
+        name=f"biz_{sanitize_name(business_name)}",
+        embedding_function=_EMBED_FN,
+    )
+    collection.add(documents=chunks, ids=[f"chunk_{i}" for i in range(len(chunks))])
+
+    n_results = min(5, len(chunks))
+    q = collection.query(
+        query_texts=[f"{business_name} {address} risk classification"],
+        n_results=n_results,
+    )
+    docs = q["documents"][0] if q["documents"] else chunks[:5]
+    return docs
+
+
+def _build_prompt(business_name: str, address: str, context: str) -> str:
+    return f"""You are a senior commercial insurance underwriter. Analyze the business below and classify its risk.
+
+Business Name: {business_name}
+Address: {address}
+
+Research Context (retrieved from public sources):
+{context}
+
+Think step by step before answering:
+Step 1 — Identify the industry: What type of business is this? What sector does it operate in?
+Step 2 — Scan for risk signals: Are there OSHA violations, safety incidents, lawsuits, regulatory issues, or inherently hazardous activities?
+Step 3 — Decide risk level: Based on industry norms and specific signals found, what is the risk level?
+
+Respond ONLY with a valid JSON object — no markdown, no extra text:
+{{
+  "industry": "<industry name>",
+  "naics_code": "<6-digit NAICS code>",
+  "risk_level": "<LOW|MEDIUM|HIGH>",
+  "confidence_score": <0.0 to 1.0>,
+  "risk_flags": ["<flag1>", "<flag2>"],
+  "chain_of_thought": "<your step-by-step reasoning>",
+  "summary": "<2-3 sentence underwriter summary>"
+}}"""
+
+
+def _ollama_payload(prompt: str, stream: bool) -> dict:
+    return {
+        "model": _cfg("OLLAMA_MODEL", "mistral"),
+        "prompt": prompt,
+        "stream": stream,
+        "options": {"temperature": 0.2, "top_k": 40, "top_p": 0.9},
+    }
+
+
+def _call_ollama(prompt: str) -> str:
+    url = _cfg("OLLAMA_URL", "http://localhost:11434")
+    resp = requests.post(f"{url}/api/generate", json=_ollama_payload(prompt, False), timeout=240)
+    resp.raise_for_status()
+    return resp.json().get("response", "")
+
+
+def _stream_ollama(prompt: str):
+    """Yield response tokens as they arrive from Ollama."""
+    url = _cfg("OLLAMA_URL", "http://localhost:11434")
+    with requests.post(f"{url}/api/generate", json=_ollama_payload(prompt, True), stream=True, timeout=240) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            try:
+                obj = json.loads(line.decode("utf-8"))
+            except json.JSONDecodeError:
+                continue
+            token = obj.get("response", "")
+            if token:
+                yield token
+            if obj.get("done"):
+                break
+
+
+def _postprocess(raw: str, business_name: str, address: str) -> dict:
+    """Extract JSON, validate fields, clamp confidence, run NAICS validation."""
+    defaults = {
+        "industry": "UNKNOWN",
+        "naics_code": "000000",
+        "risk_level": "UNKNOWN",
+        "confidence_score": 0.5,
+        "risk_flags": [],
+        "chain_of_thought": "",
+        "summary": "",
+    }
+
+    try:
+        start = raw.index("{")
+        end = raw.rindex("}") + 1
+        parsed = json.loads(raw[start:end])
+    except (ValueError, json.JSONDecodeError):
+        parsed = {}
+
+    result = {field: parsed.get(field, default) for field, default in defaults.items()}
+
+    if result["risk_level"] not in ("LOW", "MEDIUM", "HIGH"):
+        result["risk_level"] = "UNKNOWN"
+
+    try:
+        result["confidence_score"] = max(0.0, min(1.0, float(result["confidence_score"])))
+    except (TypeError, ValueError):
+        result["confidence_score"] = 0.5
+
+    if not isinstance(result["risk_flags"], list):
+        result["risk_flags"] = [str(result["risk_flags"])] if result["risk_flags"] else []
+
+    # ── NAICS validation layer ──
+    naics_validation = validate_naics(result["naics_code"], result["industry"])
+    reconciliation = reconcile_risk(result["risk_level"], naics_validation.get("expected_risk"))
+    naics_validation["risk_reconciliation"] = reconciliation
+    result["naics_validation"] = naics_validation
+
+    return result
+
+
+def _save_output(business_name: str, address: str, result: dict) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{sanitize_name(business_name)}_{timestamp}.json"
+    output = {
+        "business_name": business_name,
+        "address": address,
+        "timestamp": timestamp,
+        "classification": result,
+    }
+
+    os.makedirs(OUTPUTS_DIR, exist_ok=True)
+    with open(os.path.join(OUTPUTS_DIR, filename), "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2)
+
+    # Best-effort S3 upload
+    bucket = _cfg("AWS_S3_BUCKET", "insurisk-outputs")
+    try:
+        s3 = boto3.client(
+            "s3",
+            aws_access_key_id=_cfg("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=_cfg("AWS_SECRET_ACCESS_KEY"),
+            region_name="us-east-1",
+        )
+        s3.put_object(
+            Bucket=bucket,
+            Key=f"outputs/{filename}",
+            Body=json.dumps(output, indent=2),
+            ContentType="application/json",
+        )
+        result["s3_key"] = f"outputs/{filename}"
+    except Exception as e:
+        print(f"[S3] Upload skipped: {e}")
+
+    result["output_file"] = filename
+    return filename
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Entry points
+# ──────────────────────────────────────────────────────────────────────────
+
+def run_pipeline(business_name: str, address: str) -> dict:
+    """Blocking pipeline — used by /classify, batch mode, and the eval harness."""
+    t0 = time.perf_counter()
+
+    t = time.perf_counter()
+    chunks, sources = _tavily_enrich(business_name, address)
+    tavily_ms = round((time.perf_counter() - t) * 1000)
+
+    t = time.perf_counter()
+    context_docs = _embed_and_retrieve(business_name, address, chunks)
+    rag_ms = round((time.perf_counter() - t) * 1000)
+
+    prompt = _build_prompt(business_name, address, "\n\n---\n\n".join(context_docs))
+
+    t = time.perf_counter()
+    raw = _call_ollama(prompt)
+    llm_ms = round((time.perf_counter() - t) * 1000)
+
+    result = _postprocess(raw, business_name, address)
+    result["sources"] = sources
+    result["metrics"] = {
+        "tavily_ms": tavily_ms,
+        "rag_ms": rag_ms,
+        "llm_ms": llm_ms,
+        "total_ms": round((time.perf_counter() - t0) * 1000),
+        "chunks_indexed": len(chunks),
+        "context_chunks": len(context_docs),
+        "model": _cfg("OLLAMA_MODEL", "mistral"),
+    }
+
+    _save_output(business_name, address, result)
+    return result
+
+
+def _ev(event_type, **kw):
+    kw["type"] = event_type
+    return kw
+
+
+def stream_pipeline(business_name: str, address: str):
+    """Generator yielding progress events for SSE. Streams LLM tokens live."""
+    try:
+        t0 = time.perf_counter()
+
+        yield _ev("stage", stage="tavily", status="start", label="Searching public web sources")
+        t = time.perf_counter()
+        chunks, sources = _tavily_enrich(business_name, address)
+        tavily_ms = round((time.perf_counter() - t) * 1000)
+        yield _ev("stage", stage="tavily", status="done", ms=tavily_ms, detail=f"{len(sources)} sources, {len(chunks)} chunks")
+        yield _ev("sources", sources=sources)
+
+        yield _ev("stage", stage="rag", status="start", label="Embedding & retrieving top-5 context (RAG)")
+        t = time.perf_counter()
+        context_docs = _embed_and_retrieve(business_name, address, chunks)
+        rag_ms = round((time.perf_counter() - t) * 1000)
+        yield _ev("stage", stage="rag", status="done", ms=rag_ms, detail=f"top-{len(context_docs)} chunks")
+
+        prompt = _build_prompt(business_name, address, "\n\n---\n\n".join(context_docs))
+
+        yield _ev("stage", stage="llm", status="start", label=f"Reasoning with {_cfg('OLLAMA_MODEL', 'mistral')}")
+        t = time.perf_counter()
+        raw = ""
+        for token in _stream_ollama(prompt):
+            raw += token
+            yield _ev("token", text=token)
+        llm_ms = round((time.perf_counter() - t) * 1000)
+        yield _ev("stage", stage="llm", status="done", ms=llm_ms)
+
+        yield _ev("stage", stage="post", status="start", label="Validating output & NAICS code")
+        result = _postprocess(raw, business_name, address)
+        result["sources"] = sources
+        result["metrics"] = {
+            "tavily_ms": tavily_ms,
+            "rag_ms": rag_ms,
+            "llm_ms": llm_ms,
+            "total_ms": round((time.perf_counter() - t0) * 1000),
+            "chunks_indexed": len(chunks),
+            "context_chunks": len(context_docs),
+            "model": _cfg("OLLAMA_MODEL", "mistral"),
+        }
+        _save_output(business_name, address, result)
+        yield _ev("stage", stage="post", status="done")
+        yield _ev("result", data=result)
+    except Exception as e:
+        yield _ev("error", detail=str(e))
