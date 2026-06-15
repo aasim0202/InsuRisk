@@ -115,10 +115,20 @@ Respond ONLY with a valid JSON object — no markdown, no extra text:
 }}"""
 
 
-def _ollama_payload(prompt: str, stream: bool) -> dict:
+def _ollama_headers() -> dict:
+    """Add a Bearer token when OLLAMA_API_KEY is set (Ollama Cloud)."""
+    headers = {"Content-Type": "application/json"}
+    api_key = _cfg("OLLAMA_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _chat_payload(prompt: str, stream: bool) -> dict:
+    # /api/chat works for both local Ollama and Ollama Cloud.
     return {
         "model": _cfg("OLLAMA_MODEL", "mistral"),
-        "prompt": prompt,
+        "messages": [{"role": "user", "content": prompt}],
         "stream": stream,
         "options": {"temperature": 0.2, "top_k": 40, "top_p": 0.9},
     }
@@ -126,15 +136,20 @@ def _ollama_payload(prompt: str, stream: bool) -> dict:
 
 def _call_ollama(prompt: str) -> str:
     url = _cfg("OLLAMA_URL", "http://localhost:11434")
-    resp = requests.post(f"{url}/api/generate", json=_ollama_payload(prompt, False), timeout=240)
+    resp = requests.post(
+        f"{url}/api/chat", json=_chat_payload(prompt, False), headers=_ollama_headers(), timeout=240
+    )
     resp.raise_for_status()
-    return resp.json().get("response", "")
+    return (resp.json().get("message") or {}).get("content", "")
 
 
 def _stream_ollama(prompt: str):
-    """Yield response tokens as they arrive from Ollama."""
+    """Yield response tokens as they arrive from Ollama (local or cloud)."""
     url = _cfg("OLLAMA_URL", "http://localhost:11434")
-    with requests.post(f"{url}/api/generate", json=_ollama_payload(prompt, True), stream=True, timeout=240) as resp:
+    with requests.post(
+        f"{url}/api/chat", json=_chat_payload(prompt, True),
+        headers=_ollama_headers(), stream=True, timeout=240,
+    ) as resp:
         resp.raise_for_status()
         for line in resp.iter_lines():
             if not line:
@@ -143,7 +158,7 @@ def _stream_ollama(prompt: str):
                 obj = json.loads(line.decode("utf-8"))
             except json.JSONDecodeError:
                 continue
-            token = obj.get("response", "")
+            token = (obj.get("message") or {}).get("content", "")
             if token:
                 yield token
             if obj.get("done"):

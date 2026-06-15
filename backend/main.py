@@ -45,6 +45,7 @@ def health():
         "status": "ok",
         "ollama_url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
         "model": os.getenv("OLLAMA_MODEL", "mistral"),
+        "mode": "cloud" if os.getenv("OLLAMA_API_KEY") else "local",
         "s3_bucket": os.getenv("AWS_S3_BUCKET", "insurisk-outputs"),
     }
 

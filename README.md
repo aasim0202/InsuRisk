@@ -160,15 +160,34 @@ xdg-open ../frontend/index.html
 ## Environment Variables
 
 ```env
-TAVILY_API_KEY=tvly-your-key-here
+# Local Ollama (default)
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=mistral
+OLLAMA_API_KEY=
+
+TAVILY_API_KEY=tvly-your-key-here
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
 AWS_S3_BUCKET=insurisk-outputs
 ```
 
 > **Never commit `.env`** — it is in `.gitignore`.
+
+### Local vs. Ollama Cloud
+
+The inference layer is **provider-agnostic** — it calls Ollama's `/api/chat`, which works
+both locally and against Ollama Cloud. Switch by editing `.env` only — no code change.
+
+| | Local Ollama | Ollama Cloud |
+|---|---|---|
+| `OLLAMA_URL` | `http://localhost:11434` | `https://ollama.com` |
+| `OLLAMA_MODEL` | `mistral` | a cloud model, e.g. `gpt-oss:120b` ([list](https://ollama.com/search?c=cloud)) |
+| `OLLAMA_API_KEY` | *(empty)* | your key from [ollama.com/settings/keys](https://ollama.com/settings/keys) |
+
+**When to use Cloud:** if the local Ollama runtime is blocked (e.g. by endpoint security
+like CrowdStrike Falcon) or the machine lacks the RAM for a local model. Cloud calls are
+plain HTTPS from the backend, so the local Ollama daemon is never started. `GET /health`
+reports `"mode": "local"` or `"cloud"` so you can confirm which is active.
 
 ---
 
