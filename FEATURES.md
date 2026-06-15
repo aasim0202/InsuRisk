@@ -171,9 +171,11 @@ The inference layer is **provider-agnostic** and picks its provider automaticall
 `_provider_chain()` builds an ordered list based on `LLM_MODE`:
 
 - **`auto`** (default) — `_local_available()` probes `GET {local}/api/tags` (a ~2s check;
-  connection-refused returns instantly). If local is up → `[local, cloud]`. If local is
-  down → `[cloud, local]`. So a machine where local Ollama is blocked (e.g. **CrowdStrike
-  Falcon**) or not installed transparently uses the cloud.
+  connection-refused returns instantly). If local is up → `[local(mistral), local(llama3.2:3b), cloud]`.
+  If local is down → `[cloud, local(mistral), local(llama3.2:3b)]`. The local tier tries the
+  primary model then a lighter fallback, so a RAM-constrained machine that only has the small
+  model still works; a machine where local Ollama is blocked (e.g. **CrowdStrike Falcon**)
+  transparently uses the cloud.
 - **`local`** — local only.
 - **`cloud`** — Ollama Cloud only (needs `OLLAMA_API_KEY`).
 
@@ -192,7 +194,8 @@ Config (`.env`):
 ```env
 LLM_MODE=auto
 OLLAMA_URL=http://localhost:11434      # local, tried first
-OLLAMA_MODEL=mistral
+OLLAMA_MODEL=mistral                   # primary local model
+OLLAMA_FALLBACK_MODEL=llama3.2:3b      # lighter local model, tried next
 OLLAMA_CLOUD_URL=https://ollama.com    # cloud fallback
 OLLAMA_CLOUD_MODEL=gpt-oss:120b
 OLLAMA_API_KEY=...                     # enables the cloud fallback

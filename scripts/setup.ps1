@@ -20,15 +20,21 @@ if (-not (Test-Path backend\.env)) {
     Write-Host "    backend\.env already exists - leaving it untouched."
 }
 
-Write-Host "==> Ollama model"
+Write-Host "==> Ollama models (primary + lighter fallback)"
 if (Get-Command ollama -ErrorAction SilentlyContinue) {
-    $line = Select-String -Path backend\.env -Pattern '^OLLAMA_MODEL=(.*)$' | Select-Object -First 1
-    $model = if ($line) { $line.Matches.Groups[1].Value } else { "mistral" }
-    if (-not $model) { $model = "mistral" }
-    Write-Host "    Pulling '$model' (this can take a few minutes the first time)"
-    ollama pull $model
+    foreach ($var in @('OLLAMA_MODEL', 'OLLAMA_FALLBACK_MODEL')) {
+        $line = Select-String -Path backend\.env -Pattern "^$var=(.*)$" | Select-Object -First 1
+        if ($line) {
+            $m = ($line.Matches.Groups[1].Value -split '#')[0].Trim()
+            if ($m) {
+                Write-Host "    Pulling '$m' (this can take a few minutes the first time)"
+                ollama pull $m
+            }
+        }
+    }
 } else {
     Write-Host "    Ollama not found. Install from https://ollama.com/download then run: ollama pull mistral"
+    Write-Host "    (No local Ollama is fine - the app falls back to Ollama Cloud if OLLAMA_API_KEY is set.)"
 }
 
 Write-Host ""

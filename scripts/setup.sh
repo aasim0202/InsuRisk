@@ -22,14 +22,18 @@ else
   echo "    backend/.env already exists — leaving it untouched."
 fi
 
-echo "==> Ollama model"
+echo "==> Ollama models (primary + lighter fallback)"
 if command -v ollama >/dev/null 2>&1; then
-  MODEL="$(grep -E '^OLLAMA_MODEL=' backend/.env | head -1 | cut -d= -f2)"
-  MODEL="${MODEL:-mistral}"
-  echo "    Pulling '$MODEL' (this can take a few minutes the first time)"
-  ollama pull "$MODEL"
+  for var in OLLAMA_MODEL OLLAMA_FALLBACK_MODEL; do
+    M="$(grep -E "^${var}=" backend/.env | head -1 | cut -d= -f2 | cut -d'#' -f1 | tr -d ' ')"
+    if [ -n "$M" ]; then
+      echo "    Pulling '$M' (this can take a few minutes the first time)"
+      ollama pull "$M" || echo "    (could not pull $M — skipping)"
+    fi
+  done
 else
   echo "    Ollama not found. Install it from https://ollama.com/download then run: ollama pull mistral"
+  echo "    (No local Ollama is fine — the app falls back to Ollama Cloud if OLLAMA_API_KEY is set.)"
 fi
 
 cat <<'EOF'

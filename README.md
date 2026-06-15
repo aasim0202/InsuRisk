@@ -166,6 +166,7 @@ LLM_MODE=auto
 # Local Ollama (tried first in auto mode)
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=mistral
+OLLAMA_FALLBACK_MODEL=llama3.2:3b   # lighter local model, tried if the primary is unavailable
 
 # Ollama Cloud fallback (used when local is down, or in cloud mode)
 OLLAMA_CLOUD_URL=https://ollama.com
@@ -187,7 +188,7 @@ and in the cloud) and chooses its provider automatically via `LLM_MODE`:
 
 | `LLM_MODE` | Behaviour |
 |---|---|
-| `auto` *(default)* | Probe the local Ollama server. If it's up → use **local** (`mistral`), with cloud as fallback. If it's **down** (e.g. blocked by CrowdStrike Falcon, or not installed) → use **Ollama Cloud** (`gpt-oss:120b`). |
+| `auto` *(default)* | Probe the local Ollama server. If it's up → use **local**, trying `mistral` then the lighter `llama3.2:3b`, with cloud as a final fallback. If it's **down** (e.g. blocked by CrowdStrike Falcon, or not installed) → use **Ollama Cloud** (`gpt-oss:120b`). |
 | `local` | Force local only. |
 | `cloud` | Force Ollama Cloud only (requires `OLLAMA_API_KEY`). |
 

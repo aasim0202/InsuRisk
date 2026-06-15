@@ -127,18 +127,24 @@ def _local_available(url: str, timeout: float = 2.0) -> bool:
 
 def _provider_chain() -> list:
     """
-    Ordered list of LLM providers to try.
-      LLM_MODE=local  → local only
-      LLM_MODE=cloud  → cloud only (if a key is set)
-      LLM_MODE=auto   → prefer local if its server is up, else cloud; the other is a fallback
+    Ordered list of LLM providers to try (each entry = one URL + model).
+      LLM_MODE=local  -> local models only
+      LLM_MODE=cloud  -> cloud only (if a key is set)
+      LLM_MODE=auto   -> prefer local if its server is up, else cloud; the other is a fallback
+
+    The local tier tries the primary model (mistral) first, then a lighter
+    fallback (llama3.2:3b) — so a RAM-constrained machine that only has the
+    small model still works.
     """
     mode = (_cfg("LLM_MODE", "auto") or "auto").lower()
-    local = {
-        "name": "local",
-        "url": _cfg("OLLAMA_URL", "http://localhost:11434"),
-        "model": _cfg("OLLAMA_MODEL", "mistral"),
-        "api_key": None,
-    }
+    local_url = _cfg("OLLAMA_URL", "http://localhost:11434")
+
+    local_models = []
+    for m in (_cfg("OLLAMA_MODEL", "mistral"), _cfg("OLLAMA_FALLBACK_MODEL", "llama3.2:3b")):
+        if m and m not in local_models:
+            local_models.append(m)
+    locals_ = [{"name": "local", "url": local_url, "model": m, "api_key": None} for m in local_models]
+
     cloud = {
         "name": "cloud",
         "url": _cfg("OLLAMA_CLOUD_URL", "https://ollama.com"),
@@ -148,14 +154,14 @@ def _provider_chain() -> list:
     has_cloud = bool(cloud["api_key"])
 
     if mode == "local":
-        return [local]
+        return locals_
     if mode == "cloud":
-        return [cloud] if has_cloud else [local]
+        return [cloud] if has_cloud else locals_
 
     # auto
-    if _local_available(local["url"]):
-        return [local, cloud] if has_cloud else [local]
-    return [cloud, local] if has_cloud else [local]
+    if _local_available(local_url):
+        return locals_ + ([cloud] if has_cloud else [])
+    return ([cloud] if has_cloud else []) + locals_
 
 
 def resolve_active_provider() -> dict:
