@@ -165,24 +165,41 @@ They pull the model via Ollama and rewrite the `OLLAMA_MODEL` line in `.env`. Re
 | `phi3:mini` | ~2.3 GB | Strong step-by-step reasoning |
 | `gemma2:2b` | ~1.6 GB | Lightest, very constrained machines |
 
-### Local vs. Ollama Cloud (provider-agnostic)
+### Smart switch: local Ollama → Ollama Cloud
 
-`_call_ollama`/`_stream_ollama` hit Ollama's `/api/chat` endpoint and attach a
-`Authorization: Bearer` header **only when `OLLAMA_API_KEY` is set**. The same code path
-therefore serves both:
+The inference layer is **provider-agnostic** and picks its provider automatically.
+`_provider_chain()` builds an ordered list based on `LLM_MODE`:
 
-- **Local:** `OLLAMA_URL=http://localhost:11434`, `OLLAMA_MODEL=mistral`, no key.
-- **Cloud:** `OLLAMA_URL=https://ollama.com`, a cloud model (e.g. `gpt-oss:120b`), and a key
-  from [ollama.com/settings/keys](https://ollama.com/settings/keys).
+- **`auto`** (default) — `_local_available()` probes `GET {local}/api/tags` (a ~2s check;
+  connection-refused returns instantly). If local is up → `[local, cloud]`. If local is
+  down → `[cloud, local]`. So a machine where local Ollama is blocked (e.g. **CrowdStrike
+  Falcon**) or not installed transparently uses the cloud.
+- **`local`** — local only.
+- **`cloud`** — Ollama Cloud only (needs `OLLAMA_API_KEY`).
 
-Cloud is the fix when the local Ollama runtime is blocked (e.g. **CrowdStrike Falcon**) or
-the machine is RAM-constrained: the backend just makes an outbound HTTPS request, so the
-local Ollama daemon never runs. Note that running cloud models via the terminal
-(`ollama run <model>-cloud`) still uses the local binary and would remain blocked — the
-direct-from-backend HTTPS path is what sidesteps the block. `GET /health` returns
-`"mode": "local"` or `"cloud"`.
+Both `_call_ollama` (blocking) and `_open_stream` (streaming) then **try each provider in
+order**, falling through to the next on any request error — so a momentary local failure
+still completes via cloud. The chosen provider/model is reported in the result `metrics`
+(`"provider": "local"|"cloud"`) and shown in the UI metrics line, and `GET /health` returns
+`active_provider` / `active_model`.
 
-Code: `backend/pipeline.py` → `_ollama_headers`, `_chat_payload`, `_call_ollama`, `_stream_ollama`.
+Why this beats running cloud models through the terminal: `ollama run <model>-cloud` still
+launches the local Ollama binary (blocked by Falcon). The backend's direct HTTPS call to
+`https://ollama.com/api/chat` never starts a local process, so it sidesteps the block.
+
+Config (`.env`):
+
+```env
+LLM_MODE=auto
+OLLAMA_URL=http://localhost:11434      # local, tried first
+OLLAMA_MODEL=mistral
+OLLAMA_CLOUD_URL=https://ollama.com    # cloud fallback
+OLLAMA_CLOUD_MODEL=gpt-oss:120b
+OLLAMA_API_KEY=...                     # enables the cloud fallback
+```
+
+Code: `backend/pipeline.py` → `_local_available`, `_provider_chain`, `resolve_active_provider`,
+`_call_ollama`, `_open_stream`, `_iter_stream`.
 
 ---
 

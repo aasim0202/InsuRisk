@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from pipeline import run_pipeline, stream_pipeline, OUTPUTS_DIR
+from pipeline import run_pipeline, stream_pipeline, resolve_active_provider, OUTPUTS_DIR
 
 load_dotenv()
 
@@ -41,11 +41,15 @@ def _validate(req: ClassifyRequest):
 
 @app.get("/health")
 def health():
+    """Reports which LLM provider the smart switch would currently use."""
+    active = resolve_active_provider()
     return {
         "status": "ok",
-        "ollama_url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
-        "model": os.getenv("OLLAMA_MODEL", "mistral"),
-        "mode": "cloud" if os.getenv("OLLAMA_API_KEY") else "local",
+        "llm_mode": os.getenv("LLM_MODE", "auto"),
+        "active_provider": active["name"],     # "local" or "cloud"
+        "active_model": active["model"],
+        "active_url": active["url"],
+        "cloud_configured": bool(os.getenv("OLLAMA_API_KEY")),
         "s3_bucket": os.getenv("AWS_S3_BUCKET", "insurisk-outputs"),
     }
 

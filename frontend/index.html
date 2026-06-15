@@ -607,8 +607,9 @@
       const el = document.getElementById('metrics');
       if (!m) { el.textContent = ''; return; }
       const s = ms => (ms / 1000).toFixed(1) + 's';
+      const via = m.provider ? ` (via ${esc(m.provider)})` : '';
       el.innerHTML = `<b>Pipeline:</b> Tavily ${s(m.tavily_ms)} · RAG ${s(m.rag_ms)} · LLM ${s(m.llm_ms)} · total ${s(m.total_ms)}<br>
-        <b>Model:</b> ${m.model} · <b>Indexed:</b> ${m.chunks_indexed} chunks · <b>Context:</b> top-${m.context_chunks}`;
+        <b>Model:</b> ${esc(m.model)}${via} · <b>Indexed:</b> ${m.chunks_indexed} chunks · <b>Context:</b> top-${m.context_chunks}`;
     }
 
     /* ── Batch ── */

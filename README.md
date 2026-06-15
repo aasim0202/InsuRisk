@@ -160,9 +160,16 @@ xdg-open ../frontend/index.html
 ## Environment Variables
 
 ```env
-# Local Ollama (default)
+# LLM smart switch — auto | local | cloud
+LLM_MODE=auto
+
+# Local Ollama (tried first in auto mode)
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=mistral
+
+# Ollama Cloud fallback (used when local is down, or in cloud mode)
+OLLAMA_CLOUD_URL=https://ollama.com
+OLLAMA_CLOUD_MODEL=gpt-oss:120b
 OLLAMA_API_KEY=
 
 TAVILY_API_KEY=tvly-your-key-here
@@ -173,21 +180,24 @@ AWS_S3_BUCKET=insurisk-outputs
 
 > **Never commit `.env`** — it is in `.gitignore`.
 
-### Local vs. Ollama Cloud
+### Smart switch: local Ollama → Ollama Cloud
 
-The inference layer is **provider-agnostic** — it calls Ollama's `/api/chat`, which works
-both locally and against Ollama Cloud. Switch by editing `.env` only — no code change.
+The inference layer is **provider-agnostic** (calls Ollama's `/api/chat`, which works locally
+and in the cloud) and chooses its provider automatically via `LLM_MODE`:
 
-| | Local Ollama | Ollama Cloud |
-|---|---|---|
-| `OLLAMA_URL` | `http://localhost:11434` | `https://ollama.com` |
-| `OLLAMA_MODEL` | `mistral` | a cloud model, e.g. `gpt-oss:120b` ([list](https://ollama.com/search?c=cloud)) |
-| `OLLAMA_API_KEY` | *(empty)* | your key from [ollama.com/settings/keys](https://ollama.com/settings/keys) |
+| `LLM_MODE` | Behaviour |
+|---|---|
+| `auto` *(default)* | Probe the local Ollama server. If it's up → use **local** (`mistral`), with cloud as fallback. If it's **down** (e.g. blocked by CrowdStrike Falcon, or not installed) → use **Ollama Cloud** (`gpt-oss:120b`). |
+| `local` | Force local only. |
+| `cloud` | Force Ollama Cloud only (requires `OLLAMA_API_KEY`). |
 
-**When to use Cloud:** if the local Ollama runtime is blocked (e.g. by endpoint security
-like CrowdStrike Falcon) or the machine lacks the RAM for a local model. Cloud calls are
-plain HTTPS from the backend, so the local Ollama daemon is never started. `GET /health`
-reports `"mode": "local"` or `"cloud"` so you can confirm which is active.
+Cloud calls are plain HTTPS from the backend, so the local Ollama daemon is never started —
+which is exactly why this sidesteps endpoint-security blocks. `GET /health` reports the
+`active_provider` and `active_model` the switch currently resolves to.
+
+To enable the cloud fallback, set `OLLAMA_API_KEY` (from
+[ollama.com/settings/keys](https://ollama.com/settings/keys)) and pick a cloud model from
+[ollama.com/search?c=cloud](https://ollama.com/search?c=cloud).
 
 ---
 

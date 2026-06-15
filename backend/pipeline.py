@@ -115,54 +115,117 @@ Respond ONLY with a valid JSON object — no markdown, no extra text:
 }}"""
 
 
-def _ollama_headers() -> dict:
-    """Add a Bearer token when OLLAMA_API_KEY is set (Ollama Cloud)."""
+# ── Provider selection (smart switch: local Ollama → Ollama Cloud) ──
+
+def _local_available(url: str, timeout: float = 2.0) -> bool:
+    """Is a local Ollama server reachable? (fast — connection refused returns immediately)"""
+    try:
+        return requests.get(f"{url}/api/tags", timeout=timeout).status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def _provider_chain() -> list:
+    """
+    Ordered list of LLM providers to try.
+      LLM_MODE=local  → local only
+      LLM_MODE=cloud  → cloud only (if a key is set)
+      LLM_MODE=auto   → prefer local if its server is up, else cloud; the other is a fallback
+    """
+    mode = (_cfg("LLM_MODE", "auto") or "auto").lower()
+    local = {
+        "name": "local",
+        "url": _cfg("OLLAMA_URL", "http://localhost:11434"),
+        "model": _cfg("OLLAMA_MODEL", "mistral"),
+        "api_key": None,
+    }
+    cloud = {
+        "name": "cloud",
+        "url": _cfg("OLLAMA_CLOUD_URL", "https://ollama.com"),
+        "model": _cfg("OLLAMA_CLOUD_MODEL", "gpt-oss:120b"),
+        "api_key": _cfg("OLLAMA_API_KEY"),
+    }
+    has_cloud = bool(cloud["api_key"])
+
+    if mode == "local":
+        return [local]
+    if mode == "cloud":
+        return [cloud] if has_cloud else [local]
+
+    # auto
+    if _local_available(local["url"]):
+        return [local, cloud] if has_cloud else [local]
+    return [cloud, local] if has_cloud else [local]
+
+
+def resolve_active_provider() -> dict:
+    """The provider that would currently be used (first in the chain). Used by /health."""
+    return _provider_chain()[0]
+
+
+def _headers(provider: dict) -> dict:
     headers = {"Content-Type": "application/json"}
-    api_key = _cfg("OLLAMA_API_KEY")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    if provider.get("api_key"):
+        headers["Authorization"] = f"Bearer {provider['api_key']}"
     return headers
 
 
-def _chat_payload(prompt: str, stream: bool) -> dict:
+def _chat_payload(prompt: str, stream: bool, provider: dict) -> dict:
     # /api/chat works for both local Ollama and Ollama Cloud.
     return {
-        "model": _cfg("OLLAMA_MODEL", "mistral"),
+        "model": provider["model"],
         "messages": [{"role": "user", "content": prompt}],
         "stream": stream,
         "options": {"temperature": 0.2, "top_k": 40, "top_p": 0.9},
     }
 
 
-def _call_ollama(prompt: str) -> str:
-    url = _cfg("OLLAMA_URL", "http://localhost:11434")
-    resp = requests.post(
-        f"{url}/api/chat", json=_chat_payload(prompt, False), headers=_ollama_headers(), timeout=240
-    )
-    resp.raise_for_status()
-    return (resp.json().get("message") or {}).get("content", "")
+def _call_ollama(prompt: str):
+    """Try each provider in order; return (content, provider). Raises if all fail."""
+    errors = []
+    for p in _provider_chain():
+        try:
+            resp = requests.post(
+                f"{p['url']}/api/chat", json=_chat_payload(prompt, False, p),
+                headers=_headers(p), timeout=240,
+            )
+            resp.raise_for_status()
+            return (resp.json().get("message") or {}).get("content", ""), p
+        except requests.RequestException as e:
+            errors.append(f"{p['name']} ({p['model']}): {e}")
+    raise RuntimeError("All LLM providers failed -> " + " | ".join(errors))
 
 
-def _stream_ollama(prompt: str):
-    """Yield response tokens as they arrive from Ollama (local or cloud)."""
-    url = _cfg("OLLAMA_URL", "http://localhost:11434")
-    with requests.post(
-        f"{url}/api/chat", json=_chat_payload(prompt, True),
-        headers=_ollama_headers(), stream=True, timeout=240,
-    ) as resp:
-        resp.raise_for_status()
-        for line in resp.iter_lines():
-            if not line:
-                continue
-            try:
-                obj = json.loads(line.decode("utf-8"))
-            except json.JSONDecodeError:
-                continue
-            token = (obj.get("message") or {}).get("content", "")
-            if token:
-                yield token
-            if obj.get("done"):
-                break
+def _open_stream(prompt: str):
+    """Open a streaming chat connection, trying providers in order. Returns (response, provider)."""
+    errors = []
+    for p in _provider_chain():
+        try:
+            resp = requests.post(
+                f"{p['url']}/api/chat", json=_chat_payload(prompt, True, p),
+                headers=_headers(p), stream=True, timeout=240,
+            )
+            resp.raise_for_status()
+            return resp, p
+        except requests.RequestException as e:
+            errors.append(f"{p['name']} ({p['model']}): {e}")
+    raise RuntimeError("All LLM providers failed -> " + " | ".join(errors))
+
+
+def _iter_stream(resp):
+    """Yield response tokens as they arrive."""
+    for line in resp.iter_lines():
+        if not line:
+            continue
+        try:
+            obj = json.loads(line.decode("utf-8"))
+        except json.JSONDecodeError:
+            continue
+        token = (obj.get("message") or {}).get("content", "")
+        if token:
+            yield token
+        if obj.get("done"):
+            break
 
 
 def _postprocess(raw: str, business_name: str, address: str) -> dict:
@@ -262,7 +325,7 @@ def run_pipeline(business_name: str, address: str) -> dict:
     prompt = _build_prompt(business_name, address, "\n\n---\n\n".join(context_docs))
 
     t = time.perf_counter()
-    raw = _call_ollama(prompt)
+    raw, provider = _call_ollama(prompt)
     llm_ms = round((time.perf_counter() - t) * 1000)
 
     result = _postprocess(raw, business_name, address)
@@ -274,7 +337,8 @@ def run_pipeline(business_name: str, address: str) -> dict:
         "total_ms": round((time.perf_counter() - t0) * 1000),
         "chunks_indexed": len(chunks),
         "context_chunks": len(context_docs),
-        "model": _cfg("OLLAMA_MODEL", "mistral"),
+        "model": provider["model"],
+        "provider": provider["name"],
     }
 
     _save_output(business_name, address, result)
@@ -306,14 +370,16 @@ def stream_pipeline(business_name: str, address: str):
 
         prompt = _build_prompt(business_name, address, "\n\n---\n\n".join(context_docs))
 
-        yield _ev("stage", stage="llm", status="start", label=f"Reasoning with {_cfg('OLLAMA_MODEL', 'mistral')}")
+        yield _ev("stage", stage="llm", status="start", label="Reasoning with LLM (selecting provider)")
         t = time.perf_counter()
+        resp, provider = _open_stream(prompt)
+        yield _ev("stage", stage="llm", status="start", label=f"Reasoning with {provider['model']} ({provider['name']})")
         raw = ""
-        for token in _stream_ollama(prompt):
+        for token in _iter_stream(resp):
             raw += token
             yield _ev("token", text=token)
         llm_ms = round((time.perf_counter() - t) * 1000)
-        yield _ev("stage", stage="llm", status="done", ms=llm_ms)
+        yield _ev("stage", stage="llm", status="done", ms=llm_ms, detail=f"{provider['name']} · {provider['model']}")
 
         yield _ev("stage", stage="post", status="start", label="Validating output & NAICS code")
         result = _postprocess(raw, business_name, address)
@@ -325,7 +391,8 @@ def stream_pipeline(business_name: str, address: str):
             "total_ms": round((time.perf_counter() - t0) * 1000),
             "chunks_indexed": len(chunks),
             "context_chunks": len(context_docs),
-            "model": _cfg("OLLAMA_MODEL", "mistral"),
+            "model": provider["model"],
+            "provider": provider["name"],
         }
         _save_output(business_name, address, result)
         yield _ev("stage", stage="post", status="done")
